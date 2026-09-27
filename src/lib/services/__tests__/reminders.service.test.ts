@@ -10,22 +10,41 @@ const mockUpdate = vi.fn();
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     from: vi.fn((table: string) => {
-      if (table === "follow_up_reminders") {
-        return {
-          select: mockSelect.mockReturnValue({
-            eq: mockEq.mockReturnValue({
-              order: mockOrder.mockReturnValue({
-                limit: mockLimit,
-              }),
-            }),
-          }),
-          insert: mockInsert,
-          update: mockUpdate.mockReturnValue({
-            eq: mockEq,
-          }),
-        };
-      }
-      return {};
+      expect(table).toBe("follow_up_reminders");
+      return {
+        select: (...args: unknown[]) => {
+          mockSelect(...args);
+          return {
+            eq: (...eqArgs: unknown[]) => {
+              mockEq(...eqArgs);
+              return {
+                order: (...orderArgs: unknown[]) => {
+                  mockOrder(...orderArgs);
+                  return {
+                    limit: mockLimit,
+                    // allow await on order() for getRemindersForApplication
+                    then: (
+                      onFulfilled: (v: unknown) => unknown,
+                      onRejected?: (e: unknown) => unknown
+                    ) =>
+                      Promise.resolve(
+                        mockOrder.mock.results.at(-1)?.value ?? {
+                          data: [],
+                          error: null,
+                        }
+                      ).then(onFulfilled, onRejected),
+                  };
+                },
+              };
+            },
+          };
+        },
+        insert: mockInsert,
+        update: (...args: unknown[]) => {
+          mockUpdate(...args);
+          return { eq: mockEq };
+        },
+      };
     }),
   },
 }));
@@ -43,7 +62,7 @@ describe("reminders.service", () => {
   });
 
   describe("getDashboardReminders", () => {
-    it("fetches pending reminders with application join and limit", async () => {
+    it("fetches pending reminders ordered by due date with limit", async () => {
       const reminders = [
         {
           id: "r1",
@@ -61,20 +80,34 @@ describe("reminders.service", () => {
       expect(mockOrder).toHaveBeenCalledWith("due_date", { ascending: true });
       expect(mockLimit).toHaveBeenCalledWith(5);
     });
+
+    it("defaults limit to 10", async () => {
+      mockLimit.mockResolvedValue({ data: [], error: null });
+      await getDashboardReminders();
+      expect(mockLimit).toHaveBeenCalledWith(10);
+    });
+
+    it("throws on error", async () => {
+      mockLimit.mockResolvedValue({ data: null, error: { message: "fail" } });
+      await expect(getDashboardReminders()).rejects.toEqual({ message: "fail" });
+    });
   });
 
   describe("getRemindersForApplication", () => {
-    it("returns reminders for one application", async () => {
-      mockOrder.mockResolvedValue({ data: [], error: null });
-      mockSelect.mockReturnValue({
-        eq: mockEq.mockReturnValue({
-          order: mockOrder,
-        }),
-      });
+    it("returns reminders for one application ordered by due date", async () => {
+      const rows = [{ id: "r1", title: "Ping recruiter", due_date: "2026-10-02" }];
+      mockOrder.mockResolvedValue({ data: rows, error: null });
 
       const result = await getRemindersForApplication("app-1");
-      expect(result).toEqual([]);
+      expect(result).toEqual(rows);
       expect(mockEq).toHaveBeenCalledWith("application_id", "app-1");
+      expect(mockOrder).toHaveBeenCalledWith("due_date", { ascending: true });
+    });
+
+    it("returns empty array when data is null", async () => {
+      mockOrder.mockResolvedValue({ data: null, error: null });
+      const result = await getRemindersForApplication("app-1");
+      expect(result).toEqual([]);
     });
   });
 
@@ -94,6 +127,18 @@ describe("reminders.service", () => {
         due_date: "2026-10-05",
       });
     });
+
+    it("throws when insert fails", async () => {
+      mockInsert.mockResolvedValue({ error: { message: "insert fail" } });
+      await expect(
+        createReminder({
+          applicationId: "app-1",
+          userId: "user-1",
+          title: "x",
+          dueDate: "2026-10-05",
+        })
+      ).rejects.toEqual({ message: "insert fail" });
+    });
   });
 
   describe("markReminderDone", () => {
@@ -102,6 +147,13 @@ describe("reminders.service", () => {
       await markReminderDone("rem-1");
       expect(mockUpdate).toHaveBeenCalledWith({ status: "done" });
       expect(mockEq).toHaveBeenCalledWith("id", "rem-1");
+    });
+
+    it("throws when update fails", async () => {
+      mockEq.mockResolvedValue({ error: { message: "update fail" } });
+      await expect(markReminderDone("rem-1")).rejects.toEqual({
+        message: "update fail",
+      });
     });
   });
 });
