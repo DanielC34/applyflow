@@ -1,20 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const mockInsert = vi.fn();
-const mockSelect = vi.fn();
-const mockEq = vi.fn();
 const mockOrder = vi.fn();
+const mockEq = vi.fn();
+const mockSelect = vi.fn();
+const mockInsert = vi.fn();
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
-    from: vi.fn(() => ({
-      select: mockSelect.mockReturnValue({
-        eq: mockEq.mockReturnValue({
-          order: mockOrder,
+    from: vi.fn((table: string) => {
+      expect(table).toBe("application_notes");
+      return {
+        select: mockSelect.mockReturnValue({
+          eq: mockEq.mockReturnValue({
+            order: mockOrder,
+          }),
         }),
-      }),
-      insert: mockInsert,
-    })),
+        insert: mockInsert,
+      };
+    }),
   },
 }));
 
@@ -39,6 +42,7 @@ describe("notes.service", () => {
 
       const result = await getNotesForApplication("app-1");
       expect(result).toEqual(notes);
+      expect(mockSelect).toHaveBeenCalledWith("*");
       expect(mockEq).toHaveBeenCalledWith("application_id", "app-1");
       expect(mockOrder).toHaveBeenCalledWith("created_at", { ascending: false });
     });
@@ -51,7 +55,9 @@ describe("notes.service", () => {
 
     it("throws on error", async () => {
       mockOrder.mockResolvedValue({ data: null, error: { message: "fail" } });
-      await expect(getNotesForApplication("app-1")).rejects.toEqual({ message: "fail" });
+      await expect(getNotesForApplication("app-1")).rejects.toEqual({
+        message: "fail",
+      });
     });
   });
 
@@ -70,6 +76,18 @@ describe("notes.service", () => {
         note_type: "note",
         content: "Hello world",
       });
+    });
+
+    it("throws when insert fails", async () => {
+      mockInsert.mockResolvedValue({ error: { message: "insert error" } });
+      await expect(
+        createNote({
+          applicationId: "app-1",
+          userId: "user-1",
+          noteType: "note",
+          content: "x",
+        })
+      ).rejects.toEqual({ message: "insert error" });
     });
   });
 

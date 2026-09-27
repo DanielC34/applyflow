@@ -18,11 +18,14 @@ describe("currency utilities", () => {
       expect(CURRENCIES.length).toBeGreaterThanOrEqual(10);
     });
 
-    it("every currency has code, symbol and name", () => {
+    it("every currency has unique code, symbol and name", () => {
+      const codes = new Set<string>();
       for (const c of CURRENCIES) {
         expect(c.code).toBeTruthy();
         expect(c.symbol).toBeTruthy();
         expect(c.name).toBeTruthy();
+        expect(codes.has(c.code)).toBe(false);
+        codes.add(c.code);
       }
     });
   });
@@ -33,6 +36,7 @@ describe("currency utilities", () => {
       expect(getCurrencySymbol("EUR")).toBe("€");
       expect(getCurrencySymbol("GBP")).toBe("£");
       expect(getCurrencySymbol("JPY")).toBe("¥");
+      expect(getCurrencySymbol("ZMW")).toBe("K");
     });
 
     it("falls back to the code itself for unknown currencies", () => {
@@ -41,8 +45,11 @@ describe("currency utilities", () => {
   });
 
   describe("formatSalary", () => {
-    it("formats a normal salary with default USD", () => {
+    it("formats a normal salary with default USD when currency is null", () => {
       expect(formatSalary(80000, null)).toBe("$80,000");
+    });
+
+    it("formats with explicit USD", () => {
       expect(formatSalary(80000, "USD")).toBe("$80,000");
     });
 
@@ -51,9 +58,19 @@ describe("currency utilities", () => {
       expect(formatSalary(18000, "ZMW")).toBe("K18,000");
     });
 
-    it("returns em-dash for null/zero amounts", () => {
+    it("returns em-dash for null amount", () => {
       expect(formatSalary(null, "USD")).toBe("—");
+    });
+
+    it("returns em-dash for zero amount", () => {
       expect(formatSalary(0, "USD")).toBe("—");
+    });
+
+    it("formats large numbers with locale separators", () => {
+      const formatted = formatSalary(1250000, "USD");
+      expect(formatted.startsWith("$")).toBe(true);
+      expect(formatted).toContain("1");
+      expect(formatted).toContain("250");
     });
   });
 
