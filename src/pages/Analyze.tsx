@@ -1,145 +1,283 @@
-// Import required components and hooks
+import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { CheckCircle2, AlertCircle, Sparkles, Loader2 } from "lucide-react";
 import { AppLayout } from "@/components/AppLayout";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/PageHeader";
-import { useState } from "react";
-import { invokeJobMatchAnalysis } from "@/lib/services/ai.service";
-import { supabase } from "@/integrations/supabase/client";
+import { invokeJobMatchAnalysis, type JobMatchResult } from "@/lib/services/ai.service";
 
-interface AnalysisResult {
-  score: number;
-  strengths: string[];
-  weaknesses: string[];
-}
-
-// Analyze page component - renders when user navigates to /analyze
-export default function Analyze(): JSX.Element {
-  // State to track the resume text entered by user
+export default function Analyze() {
   const [resumeText, setResumeText] = useState<string>("");
   const [jobDescription, setJobDescription] = useState<string>("");
-  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
-  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<JobMatchResult | null>(null);
 
-  // Handler for analyze button click
+  const { mutate: runAnalysis, isPending } = useMutation({
+    mutationFn: invokeJobMatchAnalysis,
+    onSuccess: (response) => {
+      setAnalysisResult(response.result);
+      toast.success("Analysis complete!");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to analyze. Please try again.");
+      setAnalysisResult(null);
+    },
+  });
+
   const handleAnalyze = async () => {
-    try {
-      setIsAnalyzing(true);
-      const session = await supabase.auth.getSession();
-      console.log("SESSION:", session);
-      // Call AI analysis API here
-      const result = await invokeJobMatchAnalysis({
-        resume: resumeText,
-        jobDescription,
-      });
-      console.log("Full AI Response:", result);
-      // The function returns score, strengths, and weaknesses directly at the top level
-      setAnalysisResult(result as unknown as AnalysisResult);
-    } catch (error) {
-      console.error("Error analyzing resume:", error);
-    } finally {
-      setIsAnalyzing(false);
+    if (!resumeText.trim() || !jobDescription.trim()) {
+      toast.error("Please provide both resume content and job description");
+      return;
     }
+
+    if (resumeText.trim().length < 50 || jobDescription.trim().length < 50) {
+      toast.error("Both resume and job description must be at least 50 characters");
+      return;
+    }
+
+    runAnalysis({
+      resume: resumeText.trim(),
+      jobDescription: jobDescription.trim(),
+    });
+  };
+
+  const getScoreColor = (score: number) => {
+    if (score >= 80) return "text-green-600";
+    if (score >= 60) return "text-yellow-600";
+    return "text-red-600";
+  };
+
+  const getScoreBackground = (score: number) => {
+    if (score >= 80) return "bg-green-100";
+    if (score >= 60) return "bg-yellow-100";
+    return "bg-red-100";
+  };
+
+  const getScoreLabel = (score: number) => {
+    if (score >= 80) return "Strong Match";
+    if (score >= 60) return "Moderate Match";
+    return "Needs Improvement";
   };
 
   return (
-    // AppLayout provides sidebar navigation and page structure
     <AppLayout>
       <div className="space-y-6">
-        <PageHeader title="Resume Analysis" />
+        <PageHeader title="Job Match Analysis" />
 
         <div className="max-w-4xl mx-auto space-y-4">
-          {/* Resume text input section */}
+          {/* Resume Input */}
           <div>
-            <Label htmlFor="resume-textarea" className="text-lg font-medium">
+            <Label htmlFor="resume" className="text-lg font-medium">
               Resume Content
             </Label>
             <p className="text-sm text-gray-500 mb-4">
-              Paste your resume text below for AI-powered analysis
+              Paste your resume text below for analysis
             </p>
             <Textarea
-              id="resume-textarea"
-              placeholder="Paste your resume text here...e.g. Software Engineer with 5+ years experience\n• Proficient in React, TypeScript, Node.js\n• Led team of 4 developers on project X"
-              className="min-h-[400px] font-mono text-sm"
+              id="resume"
+              placeholder="Paste your resume text here...e.g. Software Engineer with 5+ years experience in React, TypeScript, and Node.js"
+              className="min-h-[300px] font-mono text-sm"
               value={resumeText}
               onChange={(e) => setResumeText(e.target.value)}
             />
+            <p className="text-sm text-gray-500 mt-1">
+              {resumeText.length > 0 ? `${resumeText.length} characters` : ""}
+            </p>
           </div>
 
-          {/* Job Description text input section */}
+          {/* Job Description Input */}
           <div>
-            <Label htmlFor="resume-textarea" className="text-lg font-medium">
+            <Label htmlFor="job-description" className="text-lg font-medium">
               Job Description
             </Label>
             <p className="text-sm text-gray-500 mb-4">
-              Paste your job description text below for AI-powered analysis
+              Paste the job description you want to match against
             </p>
             <Textarea
-              id="job-desc-textarea"
-              placeholder="Paste your job description text here...e.g. Software Engineer 1 @ Google"
-              className="min-h-[400px] font-mono text-sm"
+              id="job-description"
+              placeholder="Paste job description here...e.g. Senior Frontend Engineer - React, TypeScript, 5+ years experience"
+              className="min-h-[300px] font-mono text-sm"
               value={jobDescription}
               onChange={(e) => setJobDescription(e.target.value)}
             />
+            <p className="text-sm text-gray-500 mt-1">
+              {jobDescription.length > 0 ? `${jobDescription.length} characters` : ""}
+            </p>
           </div>
 
-          {/* Stats and action button section */}
-          <div className="flex justify-between items-center">
-            <div className="text-sm text-gray-500">
-              {resumeText.length > 0 ? (
-                <span>
-                  {resumeText.length} characters •{" "}
-                  {resumeText.split(/\s+/).length} words
-                </span>
-              ) : (
-                <span>Start typing or paste your resume</span>
-              )}
-            </div>
-
+          {/* Action Button */}
+          <div className="flex justify-end">
             <Button
               onClick={handleAnalyze}
-              disabled={resumeText.length === 0 || jobDescription.length === 0 || isAnalyzing}
-              className="px-6"
+              disabled={isPending || !resumeText.trim() || !jobDescription.trim()}
+              className="px-6 gap-2"
             >
-              {isAnalyzing ? "Analyzing..." : "Analyze Resume"}
+              {isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Analyzing...
+                </>
+              ) : (
+                "Analyze Match"
+              )}
             </Button>
           </div>
 
-          {/* Analysis Results Display */}
+          {/* Loading State */}
+          {isPending && (
+            <div className="mt-8 p-6 bg-white border rounded-lg shadow-sm">
+              <div className="flex items-center justify-center py-12">
+                <div className="flex flex-col items-center gap-4">
+                  <Loader2 className="h-12 w-12 text-primary animate-spin" />
+                  <p className="text-lg font-medium">Analyzing your match...</p>
+                  <p className="text-sm text-muted-foreground">
+                    This may take 10-30 seconds
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Results Display */}
           {analysisResult && (
             <div className="mt-8 p-6 bg-white border rounded-lg shadow-sm">
-              <h2 className="text-2xl font-bold mb-4">Analysis Result</h2>
-              
-              <div className="mb-6">
-                <div className="flex items-center gap-4">
-                  <span className="text-lg font-medium text-gray-700">Match Score:</span>
-                  <span className={`text-3xl font-bold ${analysisResult.score >= 80 ? 'text-green-600' : analysisResult.score >= 60 ? 'text-yellow-600' : 'text-red-600'}`}>
-                    {analysisResult.score}%
-                  </span>
+              <h2 className="text-2xl font-bold mb-6">Analysis Results</h2>
+
+              {/* Match Score */}
+              <div className="mb-8">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-700">Match Score</h3>
+                    <p className="text-sm text-gray-500">{getScoreLabel(analysisResult.matchScore)}</p>
+                  </div>
+                  <div className={`text-5xl font-bold ${getScoreColor(analysisResult.matchScore)}`}>
+                    {analysisResult.matchScore}%
+                  </div>
+                </div>
+
+                {/* Progress Bar */}
+                <div className="w-full bg-gray-200 rounded-full h-3">
+                  <div
+                    className={`h-3 rounded-full ${getScoreBackground(analysisResult.matchScore)}`}
+                    style={{ width: `${analysisResult.matchScore}%` }}
+                  ></div>
+                </div>
+
+                {/* Summary */}
+                <p className="mt-4 text-gray-600">{analysisResult.summary}</p>
+              </div>
+
+              {/* Three Column Layout */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Strengths */}
+                <div>
+                  <h3 className="text-lg font-semibold text-green-700 mb-3 flex items-center gap-2">
+                    <CheckCircle2 className="h-5 w-5" />
+                    Strengths
+                  </h3>
+                  {analysisResult.strengths && analysisResult.strengths.length > 0 ? (
+                    <ul className="list-disc pl-5 space-y-2">
+                      {analysisResult.strengths.map((strength, index) => (
+                        <li key={index} className="text-gray-700">{strength}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-gray-500 italic text-sm">No strengths identified</p>
+                  )}
+                </div>
+
+                {/* Missing Skills */}
+                <div>
+                  <h3 className="text-lg font-semibold text-yellow-700 mb-3 flex items-center gap-2">
+                    <AlertCircle className="h-5 w-5" />
+                    Missing Skills
+                  </h3>
+                  {analysisResult.missingSkills && analysisResult.missingSkills.length > 0 ? (
+                    <ul className="list-disc pl-5 space-y-2">
+                      {analysisResult.missingSkills.map((skill, index) => (
+                        <li key={index} className="text-gray-700">{skill}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-gray-500 italic text-sm">No missing skills identified</p>
+                  )}
+                </div>
+
+                {/* Recommendations */}
+                <div>
+                  <h3 className="text-lg font-semibold text-blue-700 mb-3 flex items-center gap-2">
+                    <Sparkles className="h-5 w-5" />
+                    Recommendations
+                  </h3>
+                  {analysisResult.recommendations && analysisResult.recommendations.length > 0 ? (
+                    <ul className="list-disc pl-5 space-y-2">
+                      {analysisResult.recommendations.map((rec, index) => (
+                        <li key={index} className="text-gray-700">{rec}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-gray-500 italic text-sm">No recommendations</p>
+                  )}
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <h3 className="text-lg font-semibold text-green-700 mb-2">Strengths</h3>
-                  <ul className="list-disc pl-5 space-y-1">
-                    {analysisResult.strengths.map((strength, index) => (
-                      <li key={index} className="text-gray-700">{strength}</li>
-                    ))}
-                  </ul>
-                  {analysisResult.strengths.length === 0 && <p className="text-gray-500 italic">None identified.</p>}
+              {/* ATS Keywords Section */}
+              <div className="mt-8 pt-6 border-t border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-700 mb-4">ATS Keyword Analysis</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <h4 className="font-medium text-green-600 mb-2 flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4" />
+                      Keywords Found
+                    </h4>
+                    {analysisResult.atsKeywordsFound && analysisResult.atsKeywordsFound.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {analysisResult.atsKeywordsFound.map((keyword, index) => (
+                          <span key={index} className="px-3 py-1 bg-green-100 text-green-800 text-sm rounded-full">
+                            {keyword}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-gray-500 italic text-sm">No ATS keywords found</p>
+                    )}
+                  </div>
+                  <div>
+                    <h4 className="font-medium text-yellow-600 mb-2 flex items-center gap-2">
+                      <AlertCircle className="h-4 w-4" />
+                      Keywords Missing
+                    </h4>
+                    {analysisResult.atsKeywordsMissing && analysisResult.atsKeywordsMissing.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {analysisResult.atsKeywordsMissing.map((keyword, index) => (
+                          <span key={index} className="px-3 py-1 bg-yellow-100 text-yellow-800 text-sm rounded-full">
+                            {keyword}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-gray-500 italic text-sm">No ATS keywords missing</p>
+                    )}
+                  </div>
                 </div>
+              </div>
 
-                <div>
-                  <h3 className="text-lg font-semibold text-red-700 mb-2">Areas for Improvement</h3>
-                  <ul className="list-disc pl-5 space-y-1">
-                    {analysisResult.weaknesses.map((weakness, index) => (
-                      <li key={index} className="text-gray-700">{weakness}</li>
+              {/* Matched Skills Section */}
+              <div className="mt-6 pt-6 border-t border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-700 mb-4">Matched Skills</h3>
+                {analysisResult.matchedSkills && analysisResult.matchedSkills.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {analysisResult.matchedSkills.map((skill, index) => (
+                      <span key={index} className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded-full">
+                        {skill}
+                      </span>
                     ))}
-                  </ul>
-                  {analysisResult.weaknesses.length === 0 && <p className="text-gray-500 italic">None identified.</p>}
-                </div>
+                  </div>
+                ) : (
+                  <p className="text-gray-500 italic text-sm">No matched skills identified</p>
+                )}
               </div>
             </div>
           )}

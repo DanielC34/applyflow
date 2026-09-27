@@ -106,20 +106,29 @@ export function invokeFollowUpGenerator(params: FollowUpParams) {
     );
 }
 
+// ---------------------------------------------------------------------------
+// job-match-score
+// ---------------------------------------------------------------------------
+
 export interface JobMatchResult {
-  matchScore: number;
-  missingSkills: string[];
-  suggestions: string[];
+    matchScore: number;
+    summary: string;
+    strengths: string[];
+    matchedSkills: string[];
+    missingSkills: string[];
+    atsKeywordsFound: string[];
+    atsKeywordsMissing: string[];
+    recommendations: string[];
 }
 
 export interface JobMatchParams {
-  resume: string;
-  jobDescription: string;
+    resume: string;
+    jobDescription: string;
 }
 
 export function invokeJobMatchAnalysis(params: JobMatchParams) {
-  return invokeFunction<AiSuccessResponse<JobMatchResult>>(
-    "job-match-score",
-    params,
-  );
+    return invokeFunction<AiSuccessResponse<JobMatchResult>>(
+        "job-match-score",
+        params
+    );
 }
